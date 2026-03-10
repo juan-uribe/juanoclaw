@@ -7,10 +7,12 @@
  * Usage: npx tsx src/whatsapp-auth.ts
  */
 import fs from 'fs';
+import https from 'https';
 import path from 'path';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import readline from 'readline';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 import makeWASocket, {
   Browsers,
@@ -19,6 +21,42 @@ import makeWASocket, {
   makeCacheableSignalKeyStore,
   useMultiFileAuthState,
 } from '@whiskeysockets/baileys';
+
+// Create proxy agent from environment if available
+const proxyUrl = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.HTTP_PROXY;
+const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
+/**
+ * Fetch the latest WhatsApp Web client revision from sw.js via the proxy.
+ * Baileys' fetchLatestWaWebVersion uses Node's fetch which ignores HTTP_PROXY.
+ */
+function fetchVersionViaProxy(): Promise<[number, number, number] | undefined> {
+  return new Promise((resolve) => {
+    const req = https.request('https://web.whatsapp.com/sw.js', { agent: proxyAgent }, (res) => {
+      let data = '';
+      res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+      res.on('end', () => {
+        const match = data.match(/client_revision[^0-9]*(\d+)/);
+        if (match) {
+          resolve([2, 3000, parseInt(match[1], 10)]);
+        } else {
+          resolve(undefined);
+        }
+      });
+    });
+    req.on('error', () => resolve(undefined));
+    req.setTimeout(5000, () => { req.destroy(); resolve(undefined); });
+    req.end();
+  });
+}
+
+async function fetchWaVersion(): Promise<[number, number, number] | undefined> {
+  if (proxyAgent) {
+    return fetchVersionViaProxy();
+  }
+  const { version } = await fetchLatestWaWebVersion({}).catch(() => ({ version: undefined }));
+  return version;
+}
 
 const AUTH_DIR = './store/auth';
 const QR_FILE = './store/qr-data.txt';
@@ -60,13 +98,7 @@ async function connectSocket(
     process.exit(0);
   }
 
-  const { version } = await fetchLatestWaWebVersion({}).catch((err) => {
-    logger.warn(
-      { err },
-      'Failed to fetch latest WA Web version, using default',
-    );
-    return { version: undefined };
-  });
+  const version = await fetchWaVersion();
   const sock = makeWASocket({
     version,
     auth: {
@@ -76,6 +108,8 @@ async function connectSocket(
     printQRInTerminal: false,
     logger,
     browser: Browsers.macOS('Chrome'),
+    agent: proxyAgent,
+    fetchAgent: proxyAgent,
   });
 
   if (usePairingCode && phoneNumber && !state.creds.me) {

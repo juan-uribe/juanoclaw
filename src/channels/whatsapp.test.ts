@@ -45,6 +45,16 @@ vi.mock('child_process', () => ({
   exec: vi.fn(),
 }));
 
+// Clear proxy env vars before module import so waProxyAgent is undefined,
+// forcing the non-proxy code path that uses the mocked fetchLatestWaWebVersion.
+// vi.hoisted runs before imports (hoisted alongside vi.mock).
+vi.hoisted(() => {
+  delete process.env.https_proxy;
+  delete process.env.HTTPS_PROXY;
+  delete process.env.http_proxy;
+  delete process.env.HTTP_PROXY;
+});
+
 // Build a fake WASocket that's an EventEmitter with the methods we need
 function createFakeSocket() {
   const ev = new EventEmitter();

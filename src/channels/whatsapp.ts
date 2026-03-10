@@ -1,6 +1,8 @@
 import { exec } from 'child_process';
 import fs from 'fs';
+import https from 'https';
 import path from 'path';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 import makeWASocket, {
   Browsers,
@@ -11,6 +13,42 @@ import makeWASocket, {
   normalizeMessageContent,
   useMultiFileAuthState,
 } from '@whiskeysockets/baileys';
+
+// Create proxy agent from environment if available
+const proxyUrl = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.HTTP_PROXY;
+const waProxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
+/**
+ * Fetch the latest WhatsApp Web client revision from sw.js via the proxy.
+ * Baileys' fetchLatestWaWebVersion uses Node's fetch which ignores HTTP_PROXY.
+ */
+function fetchVersionViaProxy(): Promise<[number, number, number] | undefined> {
+  return new Promise((resolve) => {
+    const req = https.request('https://web.whatsapp.com/sw.js', { agent: waProxyAgent }, (res) => {
+      let data = '';
+      res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+      res.on('end', () => {
+        const match = data.match(/client_revision[^0-9]*(\d+)/);
+        if (match) {
+          resolve([2, 3000, parseInt(match[1], 10)]);
+        } else {
+          resolve(undefined);
+        }
+      });
+    });
+    req.on('error', () => resolve(undefined));
+    req.setTimeout(5000, () => { req.destroy(); resolve(undefined); });
+    req.end();
+  });
+}
+
+async function fetchWaVersion(): Promise<[number, number, number] | undefined> {
+  if (waProxyAgent) {
+    return fetchVersionViaProxy();
+  }
+  const { version } = await fetchLatestWaWebVersion({}).catch(() => ({ version: undefined }));
+  return version;
+}
 
 import {
   ASSISTANT_HAS_OWN_NUMBER,
@@ -63,13 +101,7 @@ export class WhatsAppChannel implements Channel {
 
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
 
-    const { version } = await fetchLatestWaWebVersion({}).catch((err) => {
-      logger.warn(
-        { err },
-        'Failed to fetch latest WA Web version, using default',
-      );
-      return { version: undefined };
-    });
+    const version = await fetchWaVersion();
     this.sock = makeWASocket({
       version,
       auth: {
@@ -79,6 +111,8 @@ export class WhatsAppChannel implements Channel {
       printQRInTerminal: false,
       logger,
       browser: Browsers.macOS('Chrome'),
+      agent: waProxyAgent,
+      fetchAgent: waProxyAgent,
     });
 
     this.sock.ev.on('connection.update', (update) => {
