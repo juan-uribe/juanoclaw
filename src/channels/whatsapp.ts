@@ -15,7 +15,11 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 
 // Create proxy agent from environment if available
-const proxyUrl = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.HTTP_PROXY;
+const proxyUrl =
+  process.env.https_proxy ||
+  process.env.HTTPS_PROXY ||
+  process.env.http_proxy ||
+  process.env.HTTP_PROXY;
 const waProxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
 
 /**
@@ -24,20 +28,29 @@ const waProxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
  */
 function fetchVersionViaProxy(): Promise<[number, number, number] | undefined> {
   return new Promise((resolve) => {
-    const req = https.request('https://web.whatsapp.com/sw.js', { agent: waProxyAgent }, (res) => {
-      let data = '';
-      res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
-      res.on('end', () => {
-        const match = data.match(/client_revision[^0-9]*(\d+)/);
-        if (match) {
-          resolve([2, 3000, parseInt(match[1], 10)]);
-        } else {
-          resolve(undefined);
-        }
-      });
-    });
+    const req = https.request(
+      'https://web.whatsapp.com/sw.js',
+      { agent: waProxyAgent },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => {
+          data += chunk.toString();
+        });
+        res.on('end', () => {
+          const match = data.match(/client_revision[^0-9]*(\d+)/);
+          if (match) {
+            resolve([2, 3000, parseInt(match[1], 10)]);
+          } else {
+            resolve(undefined);
+          }
+        });
+      },
+    );
     req.on('error', () => resolve(undefined));
-    req.setTimeout(5000, () => { req.destroy(); resolve(undefined); });
+    req.setTimeout(5000, () => {
+      req.destroy();
+      resolve(undefined);
+    });
     req.end();
   });
 }
@@ -46,7 +59,9 @@ async function fetchWaVersion(): Promise<[number, number, number] | undefined> {
   if (waProxyAgent) {
     return fetchVersionViaProxy();
   }
-  const { version } = await fetchLatestWaWebVersion({}).catch(() => ({ version: undefined }));
+  const { version } = await fetchLatestWaWebVersion({}).catch(() => ({
+    version: undefined,
+  }));
   return version;
 }
 

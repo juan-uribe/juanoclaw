@@ -228,10 +228,18 @@ function buildContainerArgs(
   args.push('-e', `TZ=${TIMEZONE}`);
 
   // Forward proxy and CA settings so containers can reach external services
-  const caCertEnvVars = ['NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE'];
+  const caCertEnvVars = [
+    'NODE_EXTRA_CA_CERTS',
+    'SSL_CERT_FILE',
+    'REQUESTS_CA_BUNDLE',
+  ];
   for (const envVar of [
-    'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY',
-    'http_proxy', 'https_proxy', 'no_proxy',
+    'HTTP_PROXY',
+    'HTTPS_PROXY',
+    'NO_PROXY',
+    'http_proxy',
+    'https_proxy',
+    'no_proxy',
     ...caCertEnvVars,
   ]) {
     if (process.env[envVar]) {
@@ -241,7 +249,9 @@ function buildContainerArgs(
         // Add host.docker.internal to NO_PROXY so the credential proxy
         // (ANTHROPIC_BASE_URL) isn't routed through the HTTPS proxy
         const val = process.env[envVar];
-        const extra = val ? `${val},host.docker.internal` : 'host.docker.internal';
+        const extra = val
+          ? `${val},host.docker.internal`
+          : 'host.docker.internal';
         args.push('-e', `${envVar}=${extra}`);
       } else {
         args.push('-e', `${envVar}=${process.env[envVar]}`);
@@ -252,7 +262,8 @@ function buildContainerArgs(
   // Mount CA certificate into container if NODE_EXTRA_CA_CERTS is set.
   // Docker may reject mounts from restricted host paths, so we copy the cert
   // into the project's data directory and mount from there.
-  const hostCaCert = process.env.NODE_EXTRA_CA_CERTS || process.env.SSL_CERT_FILE;
+  const hostCaCert =
+    process.env.NODE_EXTRA_CA_CERTS || process.env.SSL_CERT_FILE;
   if (hostCaCert && fs.existsSync(hostCaCert)) {
     const caCertDir = path.join(DATA_DIR, 'ca-cert');
     const caCertDst = path.join(caCertDir, 'proxy-ca.crt');

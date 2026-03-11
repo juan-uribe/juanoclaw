@@ -19,8 +19,14 @@ import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
 // Create proxy agent for upstream HTTPS requests if proxy env vars are set
-const envProxyUrl = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.HTTP_PROXY;
-const upstreamProxyAgent = envProxyUrl ? new HttpsProxyAgent(envProxyUrl) : undefined;
+const envProxyUrl =
+  process.env.https_proxy ||
+  process.env.HTTPS_PROXY ||
+  process.env.http_proxy ||
+  process.env.HTTP_PROXY;
+const upstreamProxyAgent = envProxyUrl
+  ? new HttpsProxyAgent(envProxyUrl)
+  : undefined;
 
 export type AuthMode = 'api-key' | 'oauth';
 
