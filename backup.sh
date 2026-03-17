@@ -23,5 +23,5 @@ while true; do
     git commit -m "chore: auto-backup $(date -u '+%Y-%m-%d %H:%M UTC')" || true
   fi
 
-  git push origin main && echo "[backup] Pushed at $(date -u)" || echo "[backup] Push failed at $(date -u)"
+  git push --force-with-lease origin main && echo "[backup] Pushed at $(date -u)" || echo "[backup] Push failed at $(date -u)"
 done
