@@ -17,7 +17,10 @@ while true; do
 
   git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/juan-uribe/nanoclaw.git"
 
-  # Only push if there's something new
+  # Refresh lease reference before pushing
+  git fetch origin main 2>/dev/null || true
+
+  # Only commit if there's something new
   if git status --porcelain | grep -q .; then
     git add -A
     git commit -m "chore: auto-backup $(date -u '+%Y-%m-%d %H:%M UTC')" || true
