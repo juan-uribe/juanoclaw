@@ -1,6 +1,12 @@
 import { Bot, Context } from 'grammy';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import { Channel, NewMessage, OnChatMetadata, OnInboundMessage, RegisteredGroup } from '../types.js';
+import {
+  Channel,
+  NewMessage,
+  OnChatMetadata,
+  OnInboundMessage,
+  RegisteredGroup,
+} from '../types.js';
 import { registerChannel } from './registry.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
@@ -39,7 +45,12 @@ class TelegramChannel implements Channel {
     },
   ) {
     const proxyAgent = makeProxyAgent();
-    this.bot = new Bot(token, proxyAgent ? { client: { baseFetchConfig: { agent: proxyAgent } } } : undefined);
+    this.bot = new Bot(
+      token,
+      proxyAgent
+        ? { client: { baseFetchConfig: { agent: proxyAgent } } }
+        : undefined,
+    );
     this.onMessage = opts.onMessage;
     this.onChatMetadata = opts.onChatMetadata;
     this.registeredGroups = opts.registeredGroups;
@@ -50,9 +61,12 @@ class TelegramChannel implements Channel {
     this.bot.command('chatid', async (ctx: Context) => {
       const chatId = ctx.chat?.id;
       if (chatId !== undefined) {
-        await ctx.reply(`Chat ID: \`${chatId}\`\nJID: \`${chatIdToJid(chatId)}\``, {
-          parse_mode: 'Markdown',
-        });
+        await ctx.reply(
+          `Chat ID: \`${chatId}\`\nJID: \`${chatIdToJid(chatId)}\``,
+          {
+            parse_mode: 'Markdown',
+          },
+        );
       }
     });
 
@@ -62,12 +76,15 @@ class TelegramChannel implements Channel {
 
       const chatId = ctx.chat.id;
       const jid = chatIdToJid(chatId);
-      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
       const chatName =
         'title' in ctx.chat
           ? ctx.chat.title
           : ('first_name' in ctx.chat ? ctx.chat.first_name : '') +
-            ('last_name' in ctx.chat && ctx.chat.last_name ? ` ${ctx.chat.last_name}` : '');
+            ('last_name' in ctx.chat && ctx.chat.last_name
+              ? ` ${ctx.chat.last_name}`
+              : '');
       const timestamp = new Date(msg.date * 1000).toISOString();
 
       this.onChatMetadata(jid, timestamp, chatName, 'telegram', isGroup);
@@ -78,7 +95,10 @@ class TelegramChannel implements Channel {
       const from = msg.from;
       if (!from) return;
 
-      const senderName = [from.first_name, from.last_name].filter(Boolean).join(' ') || from.username || String(from.id);
+      const senderName =
+        [from.first_name, from.last_name].filter(Boolean).join(' ') ||
+        from.username ||
+        String(from.id);
       const text = msg.text ?? msg.caption ?? '';
       if (!text) return;
 
@@ -141,7 +161,9 @@ class TelegramChannel implements Channel {
 }
 
 registerChannel('telegram', (opts) => {
-  const token = process.env.TELEGRAM_BOT_TOKEN || readEnvFile(['TELEGRAM_BOT_TOKEN']).TELEGRAM_BOT_TOKEN;
+  const token =
+    process.env.TELEGRAM_BOT_TOKEN ||
+    readEnvFile(['TELEGRAM_BOT_TOKEN']).TELEGRAM_BOT_TOKEN;
   if (!token) return null;
   return new TelegramChannel(token, opts);
 });
