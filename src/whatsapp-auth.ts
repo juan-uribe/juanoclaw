@@ -9,6 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 import pino from 'pino';
+import QRCode from 'qrcode';
 import qrcode from 'qrcode-terminal';
 import readline from 'readline';
 import { HttpsProxyAgent } from 'https-proxy-agent';
@@ -23,6 +24,7 @@ import makeWASocket, {
 
 const AUTH_DIR = './store/auth';
 const QR_FILE = './store/qr-data.txt';
+const QR_TXT_FILE = './store/qr.txt';
 const STATUS_FILE = './store/auth-status.txt';
 
 const logger = pino({
@@ -113,6 +115,9 @@ async function connectSocket(
       console.log('  2. Tap Settings → Linked Devices → Link a Device');
       console.log('  3. Point your camera at the QR code below\n');
       qrcode.generate(qr, { small: true });
+      QRCode.toString(qr, { type: 'terminal', small: true }, (err, str) => {
+        if (!err) fs.writeFileSync(QR_TXT_FILE, str);
+      });
     }
 
     if (connection === 'close') {
@@ -140,9 +145,12 @@ async function connectSocket(
 
     if (connection === 'open') {
       fs.writeFileSync(STATUS_FILE, 'authenticated');
-      // Clean up QR file now that we're connected
+      // Clean up QR files now that we're connected
       try {
         fs.unlinkSync(QR_FILE);
+      } catch {}
+      try {
+        fs.unlinkSync(QR_TXT_FILE);
       } catch {}
       console.log('\n✓ Successfully authenticated with WhatsApp!');
       console.log('  Credentials saved to store/auth/');
@@ -162,6 +170,9 @@ async function authenticate(): Promise<void> {
   // Clean up any stale QR/status files from previous runs
   try {
     fs.unlinkSync(QR_FILE);
+  } catch {}
+  try {
+    fs.unlinkSync(QR_TXT_FILE);
   } catch {}
   try {
     fs.unlinkSync(STATUS_FILE);
