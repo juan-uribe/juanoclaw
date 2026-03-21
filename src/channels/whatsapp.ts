@@ -2,6 +2,7 @@ import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
@@ -70,6 +71,9 @@ export class WhatsAppChannel implements Channel {
       );
       return { version: undefined };
     });
+    const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
+    const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
     this.sock = makeWASocket({
       version,
       auth: {
@@ -78,7 +82,8 @@ export class WhatsAppChannel implements Channel {
       },
       printQRInTerminal: false,
       logger,
-      browser: Browsers.macOS('Chrome'),
+      browser: Browsers.ubuntu('Chrome'),
+      ...(agent ? { agent } : {}),
     });
 
     this.sock.ev.on('connection.update', (update) => {
