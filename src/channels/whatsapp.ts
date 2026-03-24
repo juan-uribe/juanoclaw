@@ -125,8 +125,12 @@ export class WhatsAppChannel implements Channel {
             }, 5000);
           });
         } else {
-          logger.info('Logged out. Run /setup to re-authenticate.');
-          process.exit(0);
+          logger.info('Logged out. WhatsApp channel disconnected (other channels remain active).');
+          this.connected = false;
+          if (onFirstOpen) {
+            onFirstOpen();
+            onFirstOpen = undefined;
+          }
         }
       } else if (connection === 'open') {
         this.connected = true;

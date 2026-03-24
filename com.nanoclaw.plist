@@ -6,7 +6,7 @@
     <string>com.nanoclaw</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/node</string>
+        <string>/opt/homebrew/bin/node</string>
         <string>/Users/juanoserver/nanoclaw-sandbox-4898/dist/index.js</string>
     </array>
     <key>WorkingDirectory</key>
