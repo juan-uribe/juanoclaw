@@ -1,4 +1,5 @@
-import { Bot, Context } from 'grammy';
+import https from 'https';
+import { Api, Bot, Context } from 'grammy';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import {
   Channel,
@@ -28,6 +29,24 @@ function jidToChatId(jid: string): number {
   return parseInt(jid.slice(TELEGRAM_JID_PREFIX.length), 10);
 }
 
+/**
+ * Send a message with Telegram Markdown parse mode, falling back to plain text.
+ * Claude's output naturally matches Telegram's Markdown v1 format:
+ *   *bold*, _italic_, `code`, ```code blocks```, [links](url)
+ */
+async function sendTelegramMessage(
+  api: { sendMessage: Api['sendMessage'] },
+  chatId: string | number,
+  text: string,
+): Promise<void> {
+  try {
+    await api.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+  } catch {
+    // Fallback: send as plain text if Markdown parsing fails
+    await api.sendMessage(chatId, text);
+  }
+}
+
 class TelegramChannel implements Channel {
   name = 'telegram';
   private bot: Bot;
@@ -45,12 +64,14 @@ class TelegramChannel implements Channel {
     },
   ) {
     const proxyAgent = makeProxyAgent();
-    this.bot = new Bot(
-      token,
-      proxyAgent
-        ? { client: { baseFetchConfig: { agent: proxyAgent } } }
-        : undefined,
-    );
+    this.bot = new Bot(token, {
+      client: {
+        baseFetchConfig: {
+          agent: proxyAgent ?? https.globalAgent,
+          compress: true,
+        },
+      },
+    });
     this.onMessage = opts.onMessage;
     this.onChatMetadata = opts.onChatMetadata;
     this.registeredGroups = opts.registeredGroups;
@@ -99,8 +120,16 @@ class TelegramChannel implements Channel {
         [from.first_name, from.last_name].filter(Boolean).join(' ') ||
         from.username ||
         String(from.id);
-      const text = msg.text ?? msg.caption ?? '';
-      if (!text) return;
+      // Telegram bot commands handled above — skip them in the general handler
+      // so they don't also get stored as messages. All other /commands flow through.
+      const TELEGRAM_BOT_COMMANDS = new Set(['chatid', 'ping']);
+      const msgText = msg.text ?? msg.caption ?? '';
+      if (!msgText) return;
+      if (msgText.startsWith('/')) {
+        const cmd = msgText.slice(1).split(/[\s@]/)[0].toLowerCase();
+        if (TELEGRAM_BOT_COMMANDS.has(cmd)) return;
+      }
+      const text = msgText;
 
       const newMsg: NewMessage = {
         id: `tg_${msg.message_id}_${chatId}`,
@@ -135,7 +164,7 @@ class TelegramChannel implements Channel {
     const chatId = jidToChatId(jid);
     const MAX = 4096;
     for (let i = 0; i < text.length; i += MAX) {
-      await this.bot.api.sendMessage(chatId, text.slice(i, i + MAX));
+      await sendTelegramMessage(this.bot.api, chatId, text.slice(i, i + MAX));
     }
   }
 
