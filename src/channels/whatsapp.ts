@@ -454,7 +454,10 @@ export class WhatsAppChannel implements Channel {
         return resolved.jid as string;
       }
     } catch (err) {
-      logger.debug({ phoneNumber, err }, 'resolvePhoneToJid: onWhatsApp failed');
+      logger.debug(
+        { phoneNumber, err },
+        'resolvePhoneToJid: onWhatsApp failed',
+      );
     }
     return `${phoneNumber}@s.whatsapp.net`;
   }

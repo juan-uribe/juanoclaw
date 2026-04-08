@@ -650,7 +650,11 @@ async function main(): Promise<void> {
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
       // Auto-register owner LID DM on first contact (before any DB entry exists)
-      if (!registeredGroups[chatJid] && WA_OWNER_NUMBER && chatJid.endsWith('@lid')) {
+      if (
+        !registeredGroups[chatJid] &&
+        WA_OWNER_NUMBER &&
+        chatJid.endsWith('@lid')
+      ) {
         const ownerGroup = Object.values(registeredGroups).find(
           (g) => g.folder === 'personal',
         );
@@ -659,7 +663,10 @@ async function main(): Promise<void> {
             ...ownerGroup,
             added_at: new Date().toISOString(),
           });
-          logger.info({ lidJid: chatJid }, 'Auto-registered owner LID DM on first message');
+          logger.info(
+            { lidJid: chatJid },
+            'Auto-registered owner LID DM on first message',
+          );
         }
       }
 
