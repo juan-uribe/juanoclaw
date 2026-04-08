@@ -61,9 +61,10 @@ export class WhatsAppChannel implements Channel {
   private sock!: WASocket;
   private connected = false;
   private lidToPhoneMap: Record<string, string> = {};
-  private outgoingQueue: Array<{ jid: string; text: string }> = [];
+  private outgoingQueue: Array<{ jid: string; text: string; retries?: number }> = [];
   private flushing = false;
   private groupSyncTimerStarted = false;
+  private flushTimerStarted = false;
   /** Cache of recently sent messages for retry requests (max 256 entries). */
   private sentMessageCache = new Map<string, ProtoTypes.IMessage>();
   /** Short-lived cache of phone-normalized group metadata for outbound sends. */
@@ -222,6 +223,19 @@ export class WhatsAppChannel implements Channel {
           }, GROUP_SYNC_INTERVAL_MS);
         }
 
+        // Periodically retry queued messages in case socket stays open
+        // but a per-group session error caused queuing (e.g. not-acceptable)
+        if (!this.flushTimerStarted) {
+          this.flushTimerStarted = true;
+          setInterval(() => {
+            if (this.connected && this.outgoingQueue.length > 0) {
+              this.flushOutgoingQueue().catch((err) =>
+                logger.error({ err }, 'Failed to flush outgoing queue (periodic)'),
+              );
+            }
+          }, 60_000);
+        }
+
         // Signal first connection to caller
         if (this.pendingFirstOpen) {
           this.pendingFirstOpen();
@@ -377,12 +391,26 @@ export class WhatsAppChannel implements Channel {
       }
       logger.info({ jid, length: prefixed.length }, 'Message sent');
     } catch (err) {
-      // If send fails, queue it for retry on reconnect
-      this.outgoingQueue.push({ jid, text: prefixed });
-      logger.warn(
-        { jid, err, queueSize: this.outgoingQueue.length },
-        'Failed to send, message queued',
-      );
+      const errMsg = (err as Error)?.message ?? '';
+      if (errMsg === 'not-acceptable') {
+        // Stale session keys — clear cached metadata so the next attempt fetches fresh keys
+        this.groupMetadataCache.delete(jid);
+        logger.warn({ jid }, 'Send failed with not-acceptable, cleared group metadata cache');
+      }
+      // Queue for retry, but cap per-JID depth to prevent unbounded growth
+      const jidDepth = this.outgoingQueue.filter((item) => item.jid === jid).length;
+      if (jidDepth < 5) {
+        this.outgoingQueue.push({ jid, text: prefixed });
+        logger.warn(
+          { jid, err, queueSize: this.outgoingQueue.length },
+          'Failed to send, message queued',
+        );
+      } else {
+        logger.error(
+          { jid, err },
+          'Failed to send, per-JID queue full — message discarded',
+        );
+      }
     }
   }
 
@@ -503,28 +531,15 @@ export class WhatsAppChannel implements Channel {
     }
 
     const metadata = await this.sock.groupMetadata(jid);
-    const participants = await Promise.all(
-      metadata.participants.map(async (participant) => ({
-        ...participant,
-        id: await this.translateJid(participant.id),
-      })),
-    );
-    const normalized = { ...metadata, participants };
-    const mappedCount = participants.filter(
-      (participant, index) =>
-        participant.id !== metadata.participants[index]?.id,
-    ).length;
-
-    logger.info(
-      { jid, participantCount: participants.length, mappedCount },
-      'Prepared normalized group metadata for send',
-    );
-
+    // Return raw participant IDs without LID→phone translation.
+    // Baileys passes these IDs to assertSessions; translating LID→phone
+    // causes not-acceptable errors because the server expects native LID JIDs
+    // for groups that use LID-based addressing.
     this.groupMetadataCache.set(jid, {
-      metadata: normalized,
+      metadata,
       expiresAt: Date.now() + 60_000,
     });
-    return normalized;
+    return metadata;
   }
 
   private async flushOutgoingQueue(): Promise<void> {
@@ -535,17 +550,40 @@ export class WhatsAppChannel implements Channel {
         { count: this.outgoingQueue.length },
         'Flushing outgoing message queue',
       );
-      while (this.outgoingQueue.length > 0) {
+      // Snapshot the current queue length so periodic retries don't loop forever
+      // if every send fails and re-enqueues
+      const limit = this.outgoingQueue.length;
+      for (let i = 0; i < limit && this.outgoingQueue.length > 0; i++) {
         const item = this.outgoingQueue.shift()!;
-        // Send directly — queued items are already prefixed by sendMessage
-        const sent = await this.sock.sendMessage(item.jid, { text: item.text });
-        if (sent?.key?.id && sent.message) {
-          this.sentMessageCache.set(sent.key.id, sent.message);
+        try {
+          // Send directly — queued items are already prefixed by sendMessage
+          const sent = await this.sock.sendMessage(item.jid, { text: item.text });
+          if (sent?.key?.id && sent.message) {
+            this.sentMessageCache.set(sent.key.id, sent.message);
+          }
+          logger.info(
+            { jid: item.jid, length: item.text.length },
+            'Queued message sent',
+          );
+        } catch (err) {
+          const retries = (item.retries ?? 0) + 1;
+          const errMsg = (err as Error)?.message ?? '';
+          if (errMsg === 'not-acceptable') {
+            this.groupMetadataCache.delete(item.jid);
+          }
+          if (retries < 4) {
+            this.outgoingQueue.push({ ...item, retries });
+            logger.warn(
+              { jid: item.jid, err, retries },
+              'Queued message send failed, will retry later',
+            );
+          } else {
+            logger.error(
+              { jid: item.jid, err },
+              'Queued message failed after max retries — discarded',
+            );
+          }
         }
-        logger.info(
-          { jid: item.jid, length: item.text.length },
-          'Queued message sent',
-        );
       }
     } finally {
       this.flushing = false;
