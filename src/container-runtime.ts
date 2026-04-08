@@ -3,6 +3,7 @@
  * All runtime-specific logic lives here so swapping runtimes means changing one file.
  */
 import { execSync } from 'child_process';
+import fs from 'fs';
 import os from 'os';
 
 import { logger } from './logger.js';
@@ -12,6 +13,20 @@ export const CONTAINER_RUNTIME_BIN = 'docker';
 
 /** Hostname used by containers to reach the host machine. */
 export const CONTAINER_HOST_GATEWAY = 'host.docker.internal';
+
+function detectProxyBindHost(): string {
+  if (os.platform() === 'darwin') return '127.0.0.1';
+  if (fs.existsSync('/proc/sys/fs/binfmt_misc/WSLInterop')) return '127.0.0.1';
+  const docker0 = os.networkInterfaces()['docker0'];
+  if (docker0) {
+    const ipv4 = docker0.find((a) => a.family === 'IPv4');
+    if (ipv4) return ipv4.address;
+  }
+  return '0.0.0.0';
+}
+
+export const PROXY_BIND_HOST =
+  process.env.CREDENTIAL_PROXY_HOST || detectProxyBindHost();
 
 /** CLI args needed for the container to resolve the host gateway. */
 export function hostGatewayArgs(): string[] {
