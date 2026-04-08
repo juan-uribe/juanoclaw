@@ -11,6 +11,7 @@ import {
   MAX_MESSAGES_PER_PROMPT,
   POLL_INTERVAL,
   TIMEZONE,
+  WA_OWNER_NUMBER,
 } from './config.js';
 import { startCredentialProxy } from './credential-proxy.js';
 import './channels/index.js';
@@ -18,6 +19,7 @@ import {
   getChannelFactory,
   getRegisteredChannelNames,
 } from './channels/registry.js';
+import { WhatsAppChannel } from './channels/whatsapp.js';
 import {
   ContainerOutput,
   runContainerAgent,
@@ -36,6 +38,7 @@ import {
   deleteSession,
   getAllTasks,
   getLastBotMessageTimestamp,
+  getLidDmChats,
   getMessagesSince,
   getNewMessages,
   getRouterState,
@@ -550,6 +553,38 @@ async function main(): Promise<void> {
   logger.info('Database initialized');
   loadState();
 
+  // Auto-register WhatsApp owner DM as main group (no trigger required)
+  if (WA_OWNER_NUMBER) {
+    const ownerJid = `${WA_OWNER_NUMBER}@s.whatsapp.net`;
+    if (!registeredGroups[ownerJid]) {
+      registerGroup(ownerJid, {
+        name: 'Personal (WhatsApp)',
+        folder: 'personal',
+        trigger: DEFAULT_TRIGGER,
+        added_at: new Date().toISOString(),
+        isMain: true,
+        requiresTrigger: false,
+      });
+      logger.info({ jid: ownerJid }, 'Auto-registered WhatsApp owner DM');
+    }
+
+    // Also register any LID DM chats already in the DB (owner uses LID addressing)
+    const ownerGroup =
+      registeredGroups[ownerJid] ??
+      Object.values(registeredGroups).find((g) => g.folder === 'personal');
+    if (ownerGroup) {
+      for (const lidJid of getLidDmChats()) {
+        if (!registeredGroups[lidJid]) {
+          registerGroup(lidJid, {
+            ...ownerGroup,
+            added_at: new Date().toISOString(),
+          });
+          logger.info({ lidJid }, 'Registered owner LID DM from DB');
+        }
+      }
+    }
+  }
+
   // Start credential proxy (containers route API calls through this)
   const proxyServer = await startCredentialProxy(
     CREDENTIAL_PROXY_PORT,
@@ -614,6 +649,20 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
+      // Auto-register owner LID DM on first contact (before any DB entry exists)
+      if (!registeredGroups[chatJid] && WA_OWNER_NUMBER && chatJid.endsWith('@lid')) {
+        const ownerGroup = Object.values(registeredGroups).find(
+          (g) => g.folder === 'personal',
+        );
+        if (ownerGroup) {
+          registerGroup(chatJid, {
+            ...ownerGroup,
+            added_at: new Date().toISOString(),
+          });
+          logger.info({ lidJid: chatJid }, 'Auto-registered owner LID DM on first message');
+        }
+      }
+
       // Remote control commands — intercept before storage
       const trimmed = msg.content.trim();
       if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
@@ -670,6 +719,30 @@ async function main(): Promise<void> {
   if (channels.length === 0) {
     logger.fatal('No channels connected');
     process.exit(1);
+  }
+
+  // Resolve WA owner's actual JID — LID-addressed users arrive as @lid, not @s.whatsapp.net
+  if (WA_OWNER_NUMBER) {
+    const waChannel = channels.find(
+      (ch): ch is WhatsAppChannel => ch instanceof WhatsAppChannel,
+    );
+    if (waChannel) {
+      const phoneJid = `${WA_OWNER_NUMBER}@s.whatsapp.net`;
+      const resolvedJid = await waChannel.resolvePhoneToJid(WA_OWNER_NUMBER);
+      if (resolvedJid !== phoneJid && !registeredGroups[resolvedJid]) {
+        const ownerGroup = registeredGroups[phoneJid];
+        if (ownerGroup) {
+          registerGroup(resolvedJid, {
+            ...ownerGroup,
+            added_at: new Date().toISOString(),
+          });
+          logger.info(
+            { resolvedJid, phoneJid },
+            'Registered WA owner LID alias',
+          );
+        }
+      }
+    }
   }
 
   // Start subsystems (independently of connection handler)

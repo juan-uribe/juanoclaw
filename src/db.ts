@@ -391,6 +391,20 @@ export function getMessagesSince(
     .all(chatJid, sinceTimestamp, `${botPrefix}:%`, limit) as NewMessage[];
 }
 
+/**
+ * Return JIDs of non-group WhatsApp chats that use LID addressing (@lid).
+ * Used at startup to register the owner's LID DM when WA_OWNER_NUMBER is set.
+ */
+export function getLidDmChats(): string[] {
+  const rows = db
+    .prepare(
+      `SELECT jid FROM chats
+       WHERE jid LIKE '%@lid' AND is_group = 0 AND channel = 'whatsapp'`,
+    )
+    .all() as { jid: string }[];
+  return rows.map((r) => r.jid);
+}
+
 export function getLastBotMessageTimestamp(
   chatJid: string,
   botPrefix: string,

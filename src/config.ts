@@ -12,6 +12,7 @@ const envConfig = readEnvFile([
   'ASSISTANT_HAS_OWN_NUMBER',
   'ONECLI_URL',
   'TZ',
+  'WA_OWNER_NUMBER',
 ]);
 
 export const ASSISTANT_NAME =
@@ -19,6 +20,8 @@ export const ASSISTANT_NAME =
 export const ASSISTANT_HAS_OWN_NUMBER =
   (process.env.ASSISTANT_HAS_OWN_NUMBER ||
     envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
+export const WA_OWNER_NUMBER =
+  process.env.WA_OWNER_NUMBER || envConfig.WA_OWNER_NUMBER || '';
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 

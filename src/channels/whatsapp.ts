@@ -61,7 +61,11 @@ export class WhatsAppChannel implements Channel {
   private sock!: WASocket;
   private connected = false;
   private lidToPhoneMap: Record<string, string> = {};
-  private outgoingQueue: Array<{ jid: string; text: string; retries?: number }> = [];
+  private outgoingQueue: Array<{
+    jid: string;
+    text: string;
+    retries?: number;
+  }> = [];
   private flushing = false;
   private groupSyncTimerStarted = false;
   private flushTimerStarted = false;
@@ -230,7 +234,10 @@ export class WhatsAppChannel implements Channel {
           setInterval(() => {
             if (this.connected && this.outgoingQueue.length > 0) {
               this.flushOutgoingQueue().catch((err) =>
-                logger.error({ err }, 'Failed to flush outgoing queue (periodic)'),
+                logger.error(
+                  { err },
+                  'Failed to flush outgoing queue (periodic)',
+                ),
               );
             }
           }, 60_000);
@@ -297,9 +304,13 @@ export class WhatsAppChannel implements Channel {
             isGroup,
           );
 
-          // Only deliver full message for registered groups
+          // Deliver message for registered groups, plus unregistered @lid DMs
+          // (the latter lets index.ts auto-register the owner LID on first contact).
           const groups = this.opts.registeredGroups();
-          if (groups[chatJid]) {
+          const isUnregisteredLidDm =
+            chatJid.endsWith('@lid') && !isGroup && !groups[chatJid];
+
+          if (groups[chatJid] || isUnregisteredLidDm) {
             let content =
               normalized.conversation ||
               normalized.extendedTextMessage?.text ||
@@ -395,10 +406,15 @@ export class WhatsAppChannel implements Channel {
       if (errMsg === 'not-acceptable') {
         // Stale session keys — clear cached metadata so the next attempt fetches fresh keys
         this.groupMetadataCache.delete(jid);
-        logger.warn({ jid }, 'Send failed with not-acceptable, cleared group metadata cache');
+        logger.warn(
+          { jid },
+          'Send failed with not-acceptable, cleared group metadata cache',
+        );
       }
       // Queue for retry, but cap per-JID depth to prevent unbounded growth
-      const jidDepth = this.outgoingQueue.filter((item) => item.jid === jid).length;
+      const jidDepth = this.outgoingQueue.filter(
+        (item) => item.jid === jid,
+      ).length;
       if (jidDepth < 5) {
         this.outgoingQueue.push({ jid, text: prefixed });
         logger.warn(
@@ -419,7 +435,28 @@ export class WhatsAppChannel implements Channel {
   }
 
   ownsJid(jid: string): boolean {
-    return jid.endsWith('@g.us') || jid.endsWith('@s.whatsapp.net');
+    return (
+      jid.endsWith('@g.us') ||
+      jid.endsWith('@s.whatsapp.net') ||
+      jid.endsWith('@lid')
+    );
+  }
+
+  /**
+   * Resolve a phone number to its canonical WhatsApp JID.
+   * For LID-addressed users this returns their @lid JID, not @s.whatsapp.net.
+   */
+  async resolvePhoneToJid(phoneNumber: string): Promise<string> {
+    try {
+      const results = await this.sock.onWhatsApp(phoneNumber);
+      const resolved = results?.[0];
+      if (resolved?.exists && resolved.jid) {
+        return resolved.jid as string;
+      }
+    } catch (err) {
+      logger.debug({ phoneNumber, err }, 'resolvePhoneToJid: onWhatsApp failed');
+    }
+    return `${phoneNumber}@s.whatsapp.net`;
   }
 
   async disconnect(): Promise<void> {
@@ -557,7 +594,9 @@ export class WhatsAppChannel implements Channel {
         const item = this.outgoingQueue.shift()!;
         try {
           // Send directly — queued items are already prefixed by sendMessage
-          const sent = await this.sock.sendMessage(item.jid, { text: item.text });
+          const sent = await this.sock.sendMessage(item.jid, {
+            text: item.text,
+          });
           if (sent?.key?.id && sent.message) {
             this.sentMessageCache.set(sent.key.id, sent.message);
           }
