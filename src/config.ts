@@ -29,7 +29,8 @@ export const SCHEDULER_POLL_INTERVAL = 60000;
 const PROJECT_ROOT = process.cwd();
 const HOME_DIR = process.env.HOME || os.homedir();
 
-// Mount security: allowlist stored OUTSIDE project root, never mounted into containers
+// Security config stored OUTSIDE project root — never mounted into containers,
+// never read by Claude Code during normal project work.
 export const MOUNT_ALLOWLIST_PATH = path.join(
   HOME_DIR,
   '.config',
@@ -42,6 +43,8 @@ export const SENDER_ALLOWLIST_PATH = path.join(
   'nanoclaw',
   'sender-allowlist.json',
 );
+// Per-group secrets directory: ~/.config/nanoclaw/secrets/{folder}.env
+export const SECRETS_DIR = path.join(HOME_DIR, '.config', 'nanoclaw', 'secrets');
 export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');

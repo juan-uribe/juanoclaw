@@ -7,8 +7,8 @@ import path from 'path';
 
 import { google } from 'googleapis';
 
-import { GROUPS_DIR } from './config.js';
-import { readEnvFile } from './env.js';
+import { GROUPS_DIR, SECRETS_DIR } from './config.js';
+import { parseEnvFile } from './env.js';
 import { logger } from './logger.js';
 
 const PAM_DIR = path.join(GROUPS_DIR, 'pam');
@@ -20,22 +20,22 @@ interface SyncConfig {
 }
 
 function loadConfig(): SyncConfig | null {
-  const env = readEnvFile(['GOOGLE_SA_KEY_PATH', 'PAM_SHEET_ID']);
+  const secretsFile = path.join(SECRETS_DIR, 'pam.env');
+  const env = parseEnvFile(secretsFile);
   const keyPath = env.GOOGLE_SA_KEY_PATH;
   const sheetId = env.PAM_SHEET_ID;
 
   if (!keyPath || !sheetId) return null;
 
-  const resolvedPath = path.resolve(process.cwd(), keyPath);
-  if (!fs.existsSync(resolvedPath)) {
+  if (!fs.existsSync(keyPath)) {
     logger.warn(
-      { keyPath: resolvedPath },
+      { keyPath },
       'Google SA key file not found, sheets sync disabled',
     );
     return null;
   }
 
-  return { keyPath: resolvedPath, sheetId };
+  return { keyPath, sheetId };
 }
 
 function parseCSV(content: string): string[][] {

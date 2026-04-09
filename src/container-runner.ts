@@ -14,6 +14,7 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  SECRETS_DIR,
   TIMEZONE,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
@@ -26,6 +27,7 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
+import { parseEnvFile } from './env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -230,11 +232,17 @@ function buildVolumeMounts(
 async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
+  groupSecrets: Record<string, string> = {},
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // Inject per-group secrets from groups/{folder}/secrets.env
+  for (const [key, value] of Object.entries(groupSecrets)) {
+    args.push('-e', `${key}=${value}`);
+  }
 
   // Forward proxy and CA settings so containers can reach external services
   const caCertEnvVars = [
@@ -335,7 +343,9 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = await buildContainerArgs(mounts, containerName);
+  const secretsFile = path.join(SECRETS_DIR, `${group.folder}.env`);
+  const groupSecrets = parseEnvFile(secretsFile);
+  const containerArgs = await buildContainerArgs(mounts, containerName, groupSecrets);
 
   logger.debug(
     {

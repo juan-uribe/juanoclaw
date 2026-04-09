@@ -1,3 +1,4 @@
+import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -802,6 +803,25 @@ async function main(): Promise<void> {
       for (const group of Object.values(registeredGroups)) {
         writeTasksSnapshot(group.folder, group.isMain === true, taskRows);
       }
+    },
+    restartService: () => {
+      const restartScript = path.join(process.cwd(), 'scripts', 'restart.sh');
+      const nodeBin = process.execPath;
+      const scriptPath = path.resolve(process.argv[1]);
+      const logsDir = path.join(process.cwd(), 'logs');
+      const child = spawn(
+        'bash',
+        [
+          restartScript,
+          nodeBin,
+          scriptPath,
+          path.join(logsDir, 'nanoclaw.log'),
+          path.join(logsDir, 'nanoclaw.error.log'),
+        ],
+        { detached: true, stdio: 'ignore' },
+      );
+      child.unref();
+      logger.info('Restart script launched, service will restart in ~3s');
     },
   });
   startSheetsSyncWatcher();

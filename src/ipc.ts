@@ -1,3 +1,4 @@
+import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -23,6 +24,7 @@ export interface IpcDeps {
     registeredJids: Set<string>,
   ) => void;
   onTasksChanged: () => void;
+  restartService?: () => void;
 }
 
 let ipcWatcherRunning = false;
@@ -459,6 +461,38 @@ export async function processTaskIpc(
           { data },
           'Invalid register_group request - missing required fields',
         );
+      }
+      break;
+
+    case 'restart_service':
+      if (!isMain) {
+        logger.warn(
+          { sourceGroup },
+          'Unauthorized restart_service attempt blocked',
+        );
+        break;
+      }
+      logger.info({ sourceGroup }, 'Service restart requested via IPC');
+      if (deps.restartService) {
+        deps.restartService();
+      } else {
+        // Fallback: spawn the restart script directly
+        const restartScript = path.join(process.cwd(), 'scripts', 'restart.sh');
+        const nodeBin = process.execPath;
+        const scriptPath = path.resolve(process.argv[1]);
+        const logsDir = path.join(process.cwd(), 'logs');
+        const child = spawn(
+          'bash',
+          [
+            restartScript,
+            nodeBin,
+            scriptPath,
+            path.join(logsDir, 'nanoclaw.log'),
+            path.join(logsDir, 'nanoclaw.error.log'),
+          ],
+          { detached: true, stdio: 'ignore' },
+        );
+        child.unref();
       }
       break;
 
