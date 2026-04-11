@@ -121,8 +121,16 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# Main loop
+# Main loop  (pass --now to skip sleep and run immediately)
 # ---------------------------------------------------------------------------
+
+if [[ "${1:-}" == "--now" ]]; then
+  log "Running immediately (--now)"
+  load_token || exit 1
+  backup_code
+  backup_data
+  exit 0
+fi
 
 while true; do
   secs=$(seconds_until_5am)
