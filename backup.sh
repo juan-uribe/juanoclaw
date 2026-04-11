@@ -1,15 +1,19 @@
 #!/bin/bash
-# backup.sh — Daily backup at 5:00 AM Mexico City time (CST, UTC-6).
+# backup.sh — Daily backup at 5:00 AM local time (11:00 UTC / CST).
 #
 # Two backups run each cycle:
-#   1. CODE  → juan-uribe/nanoclaw           (commits any uncommitted changes)
-#   2. DATA  → juan-uribe/personal-nanoclaw-backup (DB dump, sessions, group memory, config)
+#   1. CODE  → $CODE_REPO  (commits any uncommitted changes)
+#   2. DATA  → $BACKUP_REPO (DB dump, sessions, group memory, config)
+#
+# Configure in .env:
+#   CODE_REPO=username/nanoclaw
+#   BACKUP_REPO=username/nanoclaw-backup
 #
 # Secrets (.env, ~/.config/nanoclaw/secrets/) are never backed up.
 
 set -euo pipefail
 
-REPO="/Users/juanoserver/nanoclaw-sandbox-4898"
+REPO="$(cd "$(dirname "$0")" && pwd)"
 BACKUP_DIR="$HOME/.nanoclaw-backup"
 
 # ---------------------------------------------------------------------------
@@ -30,22 +34,30 @@ seconds_until_5am() {
   echo "$delta"
 }
 
-load_token() {
-  GITHUB_TOKEN=$(grep GITHUB_TOKEN "$REPO/.env" 2>/dev/null | tail -1 | cut -d= -f2)
+load_config() {
+  GITHUB_TOKEN=$(grep ^GITHUB_TOKEN "$REPO/.env" 2>/dev/null | tail -1 | cut -d= -f2)
+  CODE_REPO=$(grep ^CODE_REPO "$REPO/.env" 2>/dev/null | tail -1 | cut -d= -f2)
+  BACKUP_REPO=$(grep ^BACKUP_REPO "$REPO/.env" 2>/dev/null | tail -1 | cut -d= -f2)
+
   if [ -z "$GITHUB_TOKEN" ]; then
     log "No GITHUB_TOKEN in .env — skipping both backups"
     return 1
   fi
+  if [ -z "$CODE_REPO" ]; then
+    # Fall back to current git remote
+    CODE_REPO=$(git -C "$REPO" remote get-url origin 2>/dev/null \
+      | sed 's|https://[^@]*@github.com/||;s|https://github.com/||;s|\.git$||')
+  fi
 }
 
 # ---------------------------------------------------------------------------
-# 1. Code backup → juan-uribe/nanoclaw
+# 1. Code backup → $CODE_REPO
 # ---------------------------------------------------------------------------
 
 backup_code() {
-  log "--- Code backup ---"
+  log "--- Code backup ($CODE_REPO) ---"
   cd "$REPO"
-  git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/juan-uribe/nanoclaw.git"
+  git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${CODE_REPO}.git"
   git fetch origin main 2>/dev/null || true
 
   if git status --porcelain | grep -q .; then
@@ -59,11 +71,16 @@ backup_code() {
 }
 
 # ---------------------------------------------------------------------------
-# 2. Data backup → juan-uribe/personal-nanoclaw-backup
+# 2. Data backup → $BACKUP_REPO
 # ---------------------------------------------------------------------------
 
 backup_data() {
-  log "--- Data backup ---"
+  if [ -z "${BACKUP_REPO:-}" ]; then
+    log "No BACKUP_REPO in .env — skipping data backup"
+    return 0
+  fi
+
+  log "--- Data backup ($BACKUP_REPO) ---"
 
   # Init repo if first run
   if [ ! -d "$BACKUP_DIR/.git" ]; then
@@ -71,10 +88,10 @@ backup_data() {
     git -C "$BACKUP_DIR" init
     git -C "$BACKUP_DIR" checkout -b main 2>/dev/null || true
     git -C "$BACKUP_DIR" remote add origin \
-      "https://x-access-token:${GITHUB_TOKEN}@github.com/juan-uribe/personal-nanoclaw-backup.git"
+      "https://x-access-token:${GITHUB_TOKEN}@github.com/${BACKUP_REPO}.git"
   else
     git -C "$BACKUP_DIR" remote set-url origin \
-      "https://x-access-token:${GITHUB_TOKEN}@github.com/juan-uribe/personal-nanoclaw-backup.git"
+      "https://x-access-token:${GITHUB_TOKEN}@github.com/${BACKUP_REPO}.git"
   fi
 
   # .gitignore — secrets must never land in the backup repo
@@ -139,7 +156,7 @@ EOF
 
 if [[ "${1:-}" == "--now" ]]; then
   log "Running immediately (--now)"
-  load_token || exit 1
+  load_config || exit 1
   backup_code
   backup_data
   exit 0
@@ -150,7 +167,7 @@ while true; do
   log "Sleeping ${secs}s until 5:00 AM CST ($(date -u -v+${secs}S '+%Y-%m-%d %H:%M UTC' 2>/dev/null || date -u -d "+${secs} seconds" '+%Y-%m-%d %H:%M UTC'))"
   sleep "$secs"
 
-  load_token || continue
+  load_config || continue
   backup_code
   backup_data
 done

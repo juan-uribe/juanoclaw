@@ -270,7 +270,54 @@ rm -rf node_modules
 npm install && npm run build
 ```
 
-If the build fails, read the error output and fix it (usually a missing dependency). Then continue to step 6.
+If the build fails, read the error output and fix it (usually a missing dependency). Then continue to step 5b.
+
+## 5b. WhatsApp DM Allowlist
+
+Skip this step if WhatsApp was not configured in step 5.
+
+AskUserQuestion: "How should unauthorized WhatsApp DMs be handled?"
+1. **Deny-first (recommended)** — Only contacts you explicitly allowlist can DM the assistant. Everyone else is silently blocked.
+2. **Public mode** — Unknown DMs are routed to a public-facing agent (`groups/public/CLAUDE.md`). Useful for customer-facing deployments.
+3. **Open** — No DM filtering. Anyone who messages this number gets a response.
+
+If **Open**: skip to step 6.
+
+If **Deny-first** or **Public mode**:
+
+Ask the user: "Who should be allowed? For each person give me their name and WhatsApp phone number(s). Include all variants you know — for example, Mexican numbers often appear as both `523314465615` and `5213314465615`."
+
+Wait for the user to list their contacts in any natural format. Parse out names and phone numbers.
+
+Write `~/.config/nanoclaw/sender-allowlist.json`:
+
+```bash
+mkdir -p ~/.config/nanoclaw
+```
+
+For **Deny-first**:
+```json
+{
+  "publicDmAgent": { "enabled": false, "folder": "public" },
+  "dmAllowlist": {
+    "enabled": true,
+    "contacts": [
+      { "name": "Alice", "ids": ["521234567890"] },
+      { "name": "Bob",   "ids": ["529876543210", "529876543210"] }
+    ]
+  },
+  "default": { "allow": "*", "mode": "trigger" },
+  "chats": {},
+  "logDenied": true
+}
+```
+
+For **Public mode**: same structure but set `"publicDmAgent": { "enabled": true, "folder": "public" }`.
+
+Notes:
+- `ids` accepts bare phone numbers (`523314465615`), full JIDs (`523314465615@s.whatsapp.net`), or LID values. Bare numbers are matched against both.
+- The file lives at `~/.config/nanoclaw/sender-allowlist.json` — outside the project root, never mounted into containers, never committed to git.
+- Add more IDs per contact later as new JID variants appear in logs.
 
 ## 6. Mount Allowlist
 
@@ -280,6 +327,40 @@ AskUserQuestion: Agent access to external directories?
 **Yes:** Collect paths/permissions. `npx tsx setup/index.ts --step mounts -- --json '{"allowedRoots":[...],"blockedPatterns":[],"nonMainReadOnly":true}'`
 
 ## 7. Start Service
+
+### 7a. Choose process manager
+
+Check if pm2 is installed:
+```bash
+command -v pm2
+```
+
+**If pm2 is available (recommended on macOS):**
+
+```bash
+npm run build
+pm2 start dist/index.js --name nanoclaw \
+  --log logs/nanoclaw.log \
+  --error logs/nanoclaw.error.log \
+  --no-autorestart
+pm2 save
+```
+
+Then load the boot plist so pm2 resurrects on login:
+```bash
+cp scripts/com.pm2.nanoclaw.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.pm2.nanoclaw.plist
+```
+
+Skip the `npx tsx setup/index.ts --step service` call below and go directly to step 7b.
+
+**If pm2 is NOT installed**, offer to install it:
+```bash
+npm install -g pm2
+```
+Then retry the pm2 path above. If the user prefers not to use pm2, continue with the standard service step below.
+
+**Standard service step (non-pm2):**
 
 If service already running: unload first.
 - macOS: `launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist`
@@ -308,6 +389,70 @@ Replace `USERNAME` with the actual username (from `whoami`). Run the two `sudo` 
 - macOS: check `launchctl list | grep nanoclaw`. If PID=`-` and status non-zero, read `logs/nanoclaw.error.log`.
 - Linux: check `systemctl --user status nanoclaw`.
 - Re-run the service step after fixing.
+
+## 7b. Backup
+
+AskUserQuestion: "Set up automated daily backup to GitHub?"
+1. **Yes** — commits code changes + backs up agent data (DB, sessions, group memory) daily at 5 AM local time
+2. **No** — skip
+
+If **No**: continue to step 8.
+
+If **Yes**:
+
+**1. GitHub token**
+
+Check if `GITHUB_TOKEN` is already in `.env`:
+```bash
+grep GITHUB_TOKEN .env
+```
+If missing, ask: "Paste your GitHub Personal Access Token. It needs write access to your code repo and your backup repo."
+Append to `.env`:
+```
+GITHUB_TOKEN=<token>
+```
+
+**2. Repos**
+
+Ask: "What's your GitHub username and the name of your private backup repo?"
+Then write to `.env`:
+```
+CODE_REPO=<username>/<nanoclaw-repo>
+BACKUP_REPO=<username>/<backup-repo>
+```
+
+The backup repo must already exist on GitHub (create it there first if needed — private, empty).
+
+**3. Initialize backup repo**
+
+```bash
+GITHUB_TOKEN=$(grep ^GITHUB_TOKEN .env | tail -1 | cut -d= -f2)
+BACKUP_REPO=$(grep ^BACKUP_REPO .env | tail -1 | cut -d= -f2)
+mkdir -p ~/.nanoclaw-backup
+cd ~/.nanoclaw-backup
+git init
+git checkout -b main 2>/dev/null || true
+git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${BACKUP_REPO}.git"
+cd -
+```
+
+**4. Test both backups now**
+
+```bash
+bash backup.sh --now
+```
+
+Watch for `Code pushed` and `Data pushed` in the output. If either fails, check the error and fix (usually a token permission issue or the backup repo not existing yet).
+
+**5. Start backup loop**
+
+Kill any stale loop and start a fresh one:
+```bash
+pkill -f "bash.*backup.sh" 2>/dev/null || true
+nohup bash backup.sh >> logs/backup.log 2>&1 &
+```
+
+The loop will wake at 5 AM daily and run both backups automatically. `start-nanoclaw.sh` also starts it on service restart.
 
 ## 8. Verify
 
