@@ -77,11 +77,24 @@ backup_data() {
       "https://x-access-token:${GITHUB_TOKEN}@github.com/juan-uribe/personal-nanoclaw-backup.git"
   fi
 
-  # .gitignore (safety net — secrets should never land here anyway)
+  # .gitignore — secrets must never land in the backup repo
   cat > "$BACKUP_DIR/.gitignore" << 'EOF'
+# Environment files and secrets
+.env
+*.env
 secrets/
 *.keys.json
-.env
+
+# WhatsApp auth credentials
+**/auth/
+**/creds.json
+
+# Claude Code credentials
+**/.credentials.json
+
+# Certificates and private keys
+**/*.pem
+**/*.key
 EOF
 
   # 1. SQLite dump (text format, diffs cleanly)
