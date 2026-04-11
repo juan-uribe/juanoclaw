@@ -1,29 +1,33 @@
 #!/bin/bash
 # start-nanoclaw.sh — Start NanoClaw without systemd
-# To stop: kill \$(cat /Users/juanoserver/nanoclaw-sandbox-4898/nanoclaw.pid)
+# To stop: pkill -f dist/index.js
 
 set -euo pipefail
 
 cd "/Users/juanoserver/nanoclaw-sandbox-4898"
 
-# Stop existing instance if running
-if [ -f "/Users/juanoserver/nanoclaw-sandbox-4898/nanoclaw.pid" ]; then
-  OLD_PID=$(cat "/Users/juanoserver/nanoclaw-sandbox-4898/nanoclaw.pid" 2>/dev/null || echo "")
-  if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-    echo "Stopping existing NanoClaw (PID $OLD_PID)..."
-    kill "$OLD_PID" 2>/dev/null || true
-    sleep 2
-  fi
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+# Prefer pm2 (managed, auto-restart on crash)
+if command -v pm2 &>/dev/null && pm2 describe nanoclaw &>/dev/null 2>&1; then
+  echo "Restarting via pm2..."
+  pm2 restart nanoclaw
+  pm2 list
+  exit 0
 fi
 
-echo "Starting NanoClaw..."
-nohup "/usr/bin/node" "/Users/juanoserver/nanoclaw-sandbox-4898/dist/index.js" \
-  >> "/Users/juanoserver/nanoclaw-sandbox-4898/logs/nanoclaw.log" \
-  2>> "/Users/juanoserver/nanoclaw-sandbox-4898/logs/nanoclaw.error.log" &
+# Fallback: direct nohup (if pm2 not set up)
+echo "Starting NanoClaw directly (pm2 not configured)..."
+pkill -f "dist/index.js" 2>/dev/null && sleep 2
 
+SCRIPT="/Users/juanoserver/nanoclaw-sandbox-4898/scripts/pm2-start.sh"
+LOG="/Users/juanoserver/nanoclaw-sandbox-4898/logs/nanoclaw.log"
+ERR="/Users/juanoserver/nanoclaw-sandbox-4898/logs/nanoclaw.error.log"
+
+nohup bash "$SCRIPT" >> "$LOG" 2>> "$ERR" &
 echo $! > "/Users/juanoserver/nanoclaw-sandbox-4898/nanoclaw.pid"
 echo "NanoClaw started (PID $!)"
-echo "Logs: tail -f /Users/juanoserver/nanoclaw-sandbox-4898/logs/nanoclaw.log"
+echo "Logs: tail -f $LOG"
 
 # Start backup loop
 pkill -f "bash.*backup.sh" 2>/dev/null || true

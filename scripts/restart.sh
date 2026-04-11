@@ -6,13 +6,19 @@
 #   $3 = stdout log file
 #   $4 = stderr log file
 
-NODE_BIN="$1"
-SCRIPT_PATH="$2"
-LOG_FILE="$3"
-ERR_FILE="$4"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
-# Give the IPC handler time to finish before killing the parent process
+# Give the IPC handler time to finish before the process is killed
 sleep 3
-pkill -f "dist/index.js" 2>/dev/null || true
-sleep 1
-nohup "$NODE_BIN" "$SCRIPT_PATH" >> "$LOG_FILE" 2>> "$ERR_FILE" &
+
+# Prefer pm2 restart (keeps process managed); fall back to direct nohup
+if command -v pm2 &>/dev/null && pm2 describe nanoclaw &>/dev/null 2>&1; then
+  pm2 restart nanoclaw
+else
+  NODE_BIN="$1"
+  LOG_FILE="$3"
+  ERR_FILE="$4"
+  pkill -f "dist/index.js" 2>/dev/null || true
+  sleep 1
+  nohup "$NODE_BIN" "$(dirname "$2")/$(basename "$2")" >> "$LOG_FILE" 2>> "$ERR_FILE" &
+fi

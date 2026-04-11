@@ -44,7 +44,12 @@ export const SENDER_ALLOWLIST_PATH = path.join(
   'sender-allowlist.json',
 );
 // Per-group secrets directory: ~/.config/nanoclaw/secrets/{folder}.env
-export const SECRETS_DIR = path.join(HOME_DIR, '.config', 'nanoclaw', 'secrets');
+export const SECRETS_DIR = path.join(
+  HOME_DIR,
+  '.config',
+  'nanoclaw',
+  'secrets',
+);
 export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');

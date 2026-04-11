@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Label must match the filename (without .plist) -->
+    <key>Label</key>
+    <string>com.nanoclaw.daemon</string>
+
+    <!-- Run as this user (not root) -->
+    <key>UserName</key>
+    <string>juanoserver</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/juanoserver/nanoclaw-sandbox-4898/scripts/boot-startup.sh</string>
+    </array>
+
+    <!-- Run once at system boot, not on every login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Do not restart this launcher after it exits (PM2 manages NanoClaw restarts) -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/juanoserver/nanoclaw-sandbox-4898/logs/boot-startup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/juanoserver/nanoclaw-sandbox-4898/logs/boot-startup.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/juanoserver</string>
+        <key>PM2_HOME</key>
+        <string>/Users/juanoserver/.pm2</string>
+        <key>DOCKER_HOST</key>
+        <string>unix:///Users/juanoserver/.colima/default/docker.sock</string>
+    </dict>
+</dict>
+</plist>

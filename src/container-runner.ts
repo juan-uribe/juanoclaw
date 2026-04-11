@@ -345,7 +345,11 @@ export async function runContainerAgent(
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
   const secretsFile = path.join(SECRETS_DIR, `${group.folder}.env`);
   const groupSecrets = parseEnvFile(secretsFile);
-  const containerArgs = await buildContainerArgs(mounts, containerName, groupSecrets);
+  const containerArgs = await buildContainerArgs(
+    mounts,
+    containerName,
+    groupSecrets,
+  );
 
   logger.debug(
     {
