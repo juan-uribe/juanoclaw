@@ -66,6 +66,7 @@ import {
   loadSenderAllowlist,
   shouldDropMessage,
 } from './sender-allowlist.js';
+import { startSessionCleanup } from './session-cleanup.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { startSheetsSyncWatcher } from './sheets-sync.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
@@ -869,6 +870,7 @@ async function main(): Promise<void> {
     },
   });
   startSheetsSyncWatcher();
+  startSessionCleanup();
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {
