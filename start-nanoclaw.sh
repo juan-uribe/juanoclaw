@@ -28,9 +28,3 @@ nohup bash "$SCRIPT" >> "$LOG" 2>> "$ERR" &
 echo $! > "/Users/juanoserver/nanoclaw-sandbox-4898/nanoclaw.pid"
 echo "NanoClaw started (PID $!)"
 echo "Logs: tail -f $LOG"
-
-# Start backup loop
-pkill -f "bash.*backup.sh" 2>/dev/null || true
-nohup bash "/Users/juanoserver/nanoclaw-sandbox-4898/backup.sh" \
-  >> "/Users/juanoserver/nanoclaw-sandbox-4898/logs/backup.log" 2>&1 &
-echo "Backup started (pushes to GitHub every 6 hours)"
