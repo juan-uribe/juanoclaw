@@ -60,6 +60,7 @@ import {
   stopRemoteControl,
 } from './remote-control.js';
 import {
+  isDmSenderAllowed,
   isSenderAllowed,
   isTriggerAllowed,
   loadSenderAllowlist,
@@ -323,7 +324,11 @@ async function runAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
-  const sessionId = sessions[group.folder];
+  // Public DM sessions are keyed by chatJid (not folder) so each stranger
+  // gets an isolated session.  They are NOT persisted to DB — a restart
+  // gives each stranger a fresh session while preserving message history.
+  const sessionKey = group.isPublicDm ? `__public__:${chatJid}` : group.folder;
+  const sessionId = sessions[sessionKey];
 
   // Update tasks snapshot for container to read (filtered by group)
   const tasks = getAllTasks();
@@ -355,8 +360,8 @@ async function runAgent(
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
         if (output.newSessionId) {
-          sessions[group.folder] = output.newSessionId;
-          setSession(group.folder, output.newSessionId);
+          sessions[sessionKey] = output.newSessionId;
+          if (!group.isPublicDm) setSession(group.folder, output.newSessionId);
         }
         await onOutput(output);
       }
@@ -379,8 +384,8 @@ async function runAgent(
     );
 
     if (output.newSessionId) {
-      sessions[group.folder] = output.newSessionId;
-      setSession(group.folder, output.newSessionId);
+      sessions[sessionKey] = output.newSessionId;
+      if (!group.isPublicDm) setSession(group.folder, output.newSessionId);
     }
 
     if (output.status === 'error') {
@@ -400,8 +405,8 @@ async function runAgent(
           { group: group.name, staleSessionId: sessionId, error: output.error },
           'Stale session detected — clearing for next retry',
         );
-        delete sessions[group.folder];
-        deleteSession(group.folder);
+        delete sessions[sessionKey];
+        if (!group.isPublicDm) deleteSession(group.folder);
       }
 
       logger.error(
@@ -650,6 +655,45 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
+      // DM allowlist: drop unauthorized WhatsApp direct messages before any
+      // processing.  Scoped to @s.whatsapp.net and @lid JIDs — groups (@g.us)
+      // and other channels (Telegram, etc.) are never touched.  Applied to
+      // ALL WA DMs regardless of registeredGroups membership: a previously
+      // auto-registered stranger LID must not bypass the gate.
+      const isWaDm =
+        chatJid.endsWith('@s.whatsapp.net') || chatJid.endsWith('@lid');
+      if (!msg.is_from_me && !msg.is_bot_message && isWaDm) {
+        const dmCfg = loadSenderAllowlist();
+        if (!isDmSenderAllowed(chatJid, dmCfg)) {
+          const pub = dmCfg.publicDmAgent;
+          if (pub?.enabled && pub.folder && !registeredGroups[chatJid]) {
+            // Public mode: ephemerally register this stranger so the normal
+            // message loop picks it up.  Not written to DB — in-memory only.
+            registeredGroups[chatJid] = {
+              name: `Public DM (${chatJid.split('@')[0]})`,
+              folder: pub.folder,
+              trigger: DEFAULT_TRIGGER,
+              added_at: new Date().toISOString(),
+              isMain: false,
+              requiresTrigger: false,
+              isPublicDm: true,
+            };
+            logger.info(
+              { chatJid, folder: pub.folder },
+              'public-dm: registered ephemeral DM for public agent',
+            );
+          } else {
+            if (dmCfg.logDenied) {
+              logger.warn(
+                { chatJid, sender: msg.sender },
+                'dm-allowlist: blocked unauthorized DM',
+              );
+            }
+            return;
+          }
+        }
+      }
+
       // Auto-register owner LID DM on first contact (before any DB entry exists)
       if (
         !registeredGroups[chatJid] &&
