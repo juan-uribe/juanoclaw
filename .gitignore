@@ -40,3 +40,4 @@ groups/public/*
 
 agents-sdk-docs
 nanoclaw.pid
+.git.backup.*
