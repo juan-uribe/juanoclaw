@@ -325,12 +325,21 @@ async function buildContainerArgs(
         agent: agentIdentifier,
       });
       if (onecliApplied) {
-        logger.info({ containerName, agentIdentifier }, 'OneCLI gateway config applied');
+        logger.info(
+          { containerName, agentIdentifier },
+          'OneCLI gateway config applied',
+        );
       } else {
-        logger.warn({ containerName }, 'OneCLI gateway not reachable — falling back to credential proxy');
+        logger.warn(
+          { containerName },
+          'OneCLI gateway not reachable — falling back to credential proxy',
+        );
       }
     } catch (err) {
-      logger.error({ err, containerName }, 'OneCLI applyContainerConfig failed — falling back to credential proxy');
+      logger.error(
+        { err, containerName },
+        'OneCLI applyContainerConfig failed — falling back to credential proxy',
+      );
     }
   }
 

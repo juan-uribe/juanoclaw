@@ -74,6 +74,7 @@ import {
   isSessionCommandAllowed,
 } from './session-commands.js';
 import { startSchedulerLoop } from './task-scheduler.js';
+import { startSheetsSyncWatcher } from './sheets-sync.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 
@@ -474,6 +475,8 @@ async function startMessageLoop(): Promise<void> {
     return;
   }
   messageLoopRunning = true;
+
+  startSheetsSyncWatcher();
 
   logger.info(`NanoClaw running (default trigger: ${DEFAULT_TRIGGER})`);
 
