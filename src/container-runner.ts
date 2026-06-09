@@ -14,6 +14,7 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  ONECLI_URL,
   SECRETS_DIR,
   TIMEZONE,
 } from './config.js';
@@ -30,6 +31,9 @@ import { detectAuthMode } from './credential-proxy.js';
 import { parseEnvFile } from './env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
+import { OneCLI } from '@onecli-sh/sdk';
+
+const onecli = ONECLI_URL ? new OneCLI({ url: ONECLI_URL }) : null;
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -252,6 +256,7 @@ async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
   groupSecrets: Record<string, string> = {},
+  agentIdentifier?: string,
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
@@ -308,18 +313,38 @@ async function buildContainerArgs(
     });
   }
 
-  // Route API traffic through the credential proxy (containers never see real secrets)
-  args.push(
-    '-e',
-    `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
-  );
+  // Credential injection. When OneCLI is configured (ONECLI_URL set), route
+  // through the OneCLI gateway — it intercepts HTTPS and injects real keys at
+  // request time. Otherwise fall back to the local credential proxy that reads
+  // credentials from .env (Apple Container native-credential-proxy path).
+  let onecliApplied = false;
+  if (onecli) {
+    try {
+      onecliApplied = await onecli.applyContainerConfig(args, {
+        addHostMapping: false,
+        agent: agentIdentifier,
+      });
+      if (onecliApplied) {
+        logger.info({ containerName, agentIdentifier }, 'OneCLI gateway config applied');
+      } else {
+        logger.warn({ containerName }, 'OneCLI gateway not reachable — falling back to credential proxy');
+      }
+    } catch (err) {
+      logger.error({ err, containerName }, 'OneCLI applyContainerConfig failed — falling back to credential proxy');
+    }
+  }
 
-  // Mirror the host's auth method with a placeholder value.
-  const authMode = detectAuthMode();
-  if (authMode === 'api-key') {
-    args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
-  } else {
-    args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+  if (!onecliApplied) {
+    args.push(
+      '-e',
+      `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
+    );
+    const authMode = detectAuthMode();
+    if (authMode === 'api-key') {
+      args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
+    } else {
+      args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+    }
   }
 
   // Runtime-specific args for host gateway resolution

@@ -253,12 +253,8 @@ export class WhatsAppChannel implements Channel {
 
     this.sock.ev.on('creds.update', saveCreds);
 
-    this.sock.ev.on('chats.phoneNumberShare', ({ lid, jid }) => {
-      const lidUser = lid?.split('@')[0].split(':')[0];
-      if (lidUser && jid) {
-        this.setLidPhoneMapping(lidUser, jid);
-      }
-    });
+    // chats.phoneNumberShare event removed in Baileys 7. LID mapping is now
+    // handled automatically inside Baileys; manual mapping not needed.
 
     this.sock.ev.on('messages.upsert', async ({ messages }) => {
       for (const msg of messages) {
