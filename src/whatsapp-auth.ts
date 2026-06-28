@@ -31,13 +31,17 @@ const _generics = _require(
   '@whiskeysockets/baileys/lib/Utils/generics',
 ) as Record<string, unknown>;
 const { proto } = _require('@whiskeysockets/baileys') as { proto: any };
-_generics.getPlatformId = (browser: string): string => {
-  const platformType =
-    proto.DeviceProps.PlatformType[
-      browser.toUpperCase() as keyof typeof proto.DeviceProps.PlatformType
-    ];
-  return platformType ? platformType.toString() : '1';
-};
+// Baileys 7.x already ships the fix and freezes this module (assignment would
+// throw "object is not extensible"). Only patch when the module is mutable (6.x).
+if (Object.isExtensible(_generics)) {
+  _generics.getPlatformId = (browser: string): string => {
+    const platformType =
+      proto.DeviceProps.PlatformType[
+        browser.toUpperCase() as keyof typeof proto.DeviceProps.PlatformType
+      ];
+    return platformType ? platformType.toString() : '1';
+  };
+}
 
 const AUTH_DIR = './store/auth';
 const QR_FILE = './store/qr-data.txt';
