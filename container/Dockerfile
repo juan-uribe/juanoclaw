@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     ffmpeg \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Chromium path for agent-browser

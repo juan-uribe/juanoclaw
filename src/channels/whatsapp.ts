@@ -26,6 +26,7 @@ const { proto } = createRequire(import.meta.url)('@whiskeysockets/baileys') as {
 import {
   ASSISTANT_HAS_OWN_NUMBER,
   ASSISTANT_NAME,
+  GROUPS_DIR,
   STORE_DIR,
 } from '../config.js';
 import {
@@ -34,7 +35,9 @@ import {
   setLastGroupSync,
   updateChatName,
 } from '../db.js';
+import { isPdfDocumentMessage, savePdfDocumentMessage } from '../documents.js';
 import { logger } from '../logger.js';
+import { isVoiceMessage, transcribeAudioMessage } from '../transcription.js';
 import pino from 'pino';
 
 // Baileys requires a pino-compatible logger instance
@@ -324,7 +327,9 @@ export class WhatsAppChannel implements Channel {
             }
 
             // Skip protocol messages with no text content (encryption keys, read receipts, etc.)
-            if (!content) continue;
+            // but allow voice notes (transcription) and PDF documents (import) through.
+            if (!content && !isVoiceMessage(msg) && !isPdfDocumentMessage(msg))
+              continue;
 
             const sender = msg.key.participant || msg.key.remoteJid || '';
             const senderName = msg.pushName || sender.split('@')[0];
@@ -338,12 +343,60 @@ export class WhatsAppChannel implements Channel {
               ? fromMe
               : content.startsWith(`${ASSISTANT_NAME}:`);
 
+            // Transcribe voice notes (ptt audio) before storing, so the agent
+            // receives them as text: "[Voice: <transcript>]".
+            let finalContent = content;
+            if (isVoiceMessage(msg)) {
+              try {
+                const transcript = await transcribeAudioMessage(
+                  msg,
+                  this.sock,
+                );
+                if (transcript) {
+                  finalContent = `[Voice: ${transcript}]`;
+                  logger.info(
+                    { chatJid, length: transcript.length },
+                    'Transcribed voice message',
+                  );
+                } else {
+                  finalContent = '[Voice Message - transcription unavailable]';
+                }
+              } catch (err) {
+                logger.error({ err }, 'Voice transcription error');
+                finalContent = '[Voice Message - transcription failed]';
+              }
+            } else if (groups[chatJid] && isPdfDocumentMessage(msg)) {
+              // Save PDF documents (e.g. bank statements) into the group's
+              // inbox/ so the agent can read them from /workspace/group/inbox.
+              try {
+                const saved = await savePdfDocumentMessage(
+                  msg,
+                  this.sock,
+                  path.join(GROUPS_DIR, groups[chatJid].folder, 'inbox'),
+                );
+                if (saved) {
+                  const caption = content ? ` (${content})` : '';
+                  finalContent = `[Documento recibido: inbox/${saved.fileName}${caption}]`;
+                  logger.info(
+                    { chatJid, fileName: saved.fileName },
+                    'Saved PDF document to group inbox',
+                  );
+                } else {
+                  finalContent =
+                    '[Documento recibido pero no se pudo guardar (revisa tamaño/formato)]';
+                }
+              } catch (err) {
+                logger.error({ err }, 'Document save error');
+                finalContent = '[Documento recibido - error al guardar]';
+              }
+            }
+
             this.opts.onMessage(chatJid, {
               id: msg.key.id || '',
               chat_jid: chatJid,
               sender,
               sender_name: senderName,
-              content,
+              content: finalContent,
               timestamp,
               is_from_me: fromMe,
               is_bot_message: isBotMessage,
