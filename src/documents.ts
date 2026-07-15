@@ -15,15 +15,15 @@ const MAX_DOC_BYTES = 25 * 1024 * 1024;
  * Sanitize a WhatsApp-provided filename into a safe basename ending in .pdf.
  */
 function safePdfName(raw: string | null | undefined): string {
-  const base = path.basename(raw || 'document.pdf').replace(/[^A-Za-z0-9._-]/g, '_');
+  const base = path
+    .basename(raw || 'document.pdf')
+    .replace(/[^A-Za-z0-9._-]/g, '_');
   const trimmed = base.replace(/^_+/, '') || 'document.pdf';
   return trimmed.toLowerCase().endsWith('.pdf') ? trimmed : `${trimmed}.pdf`;
 }
 
 /** Return the PDF documentMessage (unwrapped) plus a safe filename, or null. */
-function getPdfDocument(
-  msg: WAMessage,
-): { fileName: string } | null {
+function getPdfDocument(msg: WAMessage): { fileName: string } | null {
   const content = normalizeMessageContent(msg.message);
   const doc = content?.documentMessage;
   if (!doc || doc.mimetype !== 'application/pdf') return null;
