@@ -162,10 +162,7 @@ async function syncToSheet(config: SyncConfig): Promise<void> {
 function startWatcher(config: SyncConfig): void {
   // Initial sync on startup
   syncToSheet(config).catch((err) =>
-    logger.error(
-      { err, folder: config.folder },
-      'Initial sheets sync failed',
-    ),
+    logger.error({ err, folder: config.folder }, 'Initial sheets sync failed'),
   );
 
   // Watch the group directory for changes to its CSV
