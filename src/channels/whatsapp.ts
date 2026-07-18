@@ -348,7 +348,15 @@ export class WhatsAppChannel implements Channel {
             let finalContent = content;
             if (isVoiceMessage(msg)) {
               try {
-                const transcript = await transcribeAudioMessage(msg, this.sock);
+                // The main assistant (Andy) is bilingual, so auto-detect
+                // language; the Spanish-only agents (PAM, CAJA) force 'es' for
+                // reliable transcription of short domain phrases.
+                const voiceLang = groups[chatJid]?.isMain ? 'auto' : undefined;
+                const transcript = await transcribeAudioMessage(
+                  msg,
+                  this.sock,
+                  voiceLang,
+                );
                 if (transcript) {
                   finalContent = `[Voice: ${transcript}]`;
                   logger.info(

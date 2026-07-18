@@ -18,14 +18,16 @@ const WHISPER_MODEL =
   path.join(process.cwd(), 'data', 'models', 'ggml-small.bin');
 // whisper-cli's -l flag defaults to 'en' (NOT auto-detect). Forcing English on
 // Spanish voice notes makes whisper emit "(speaking in foreign language)"
-// instead of a transcript. Default to Spanish; override with WHISPER_LANG
-// (e.g. 'auto', 'en').
-const WHISPER_LANG = process.env.WHISPER_LANG || 'es';
+// instead of a transcript. Callers pass a per-group language: 'es' for the
+// Spanish-only agents (PAM, CAJA), 'auto' for bilingual ones (main/Andy).
+// WHISPER_LANG overrides the default used when a caller passes none.
+const DEFAULT_WHISPER_LANG = process.env.WHISPER_LANG || 'es';
 
 const FALLBACK_MESSAGE = '[Voice Message - transcription unavailable]';
 
 async function transcribeWithWhisperCpp(
   audioBuffer: Buffer,
+  lang: string,
 ): Promise<string | null> {
   const tmpDir = os.tmpdir();
   const id = `nanoclaw-voice-${Date.now()}`;
@@ -44,7 +46,7 @@ async function transcribeWithWhisperCpp(
 
     const { stdout } = await execFileAsync(
       WHISPER_BIN,
-      ['-m', WHISPER_MODEL, '-f', tmpWav, '-l', WHISPER_LANG, '-nt'],
+      ['-m', WHISPER_MODEL, '-f', tmpWav, '-l', lang, '-nt'],
       { timeout: 120_000 },
     );
 
@@ -67,6 +69,7 @@ async function transcribeWithWhisperCpp(
 export async function transcribeAudioMessage(
   msg: WAMessage,
   sock: WASocket,
+  lang: string = DEFAULT_WHISPER_LANG,
 ): Promise<string | null> {
   try {
     const buffer = (await downloadMediaMessage(
@@ -84,7 +87,7 @@ export async function transcribeAudioMessage(
       return FALLBACK_MESSAGE;
     }
 
-    const transcript = await transcribeWithWhisperCpp(buffer);
+    const transcript = await transcribeWithWhisperCpp(buffer, lang);
 
     if (!transcript) {
       return FALLBACK_MESSAGE;
