@@ -188,8 +188,15 @@ export class WhatsAppChannel implements Channel {
             }, 5000);
           });
         } else {
-          logger.info('Logged out. Run /setup to re-authenticate.');
-          process.exit(0);
+          // Logged out (401). Do NOT exit the process — that combined with
+          // the service's Restart=always turns a WhatsApp logout into an
+          // infinite crash-loop that also takes down every other channel.
+          // Leave WhatsApp disconnected; the rest of the service keeps running.
+          logger.warn(
+            'WhatsApp logged out (device unlinked). Channel is now offline; ' +
+              're-pair with `node dist/whatsapp-auth.js --pairing-code`. ' +
+              'Other channels remain active.',
+          );
         }
       } else if (connection === 'open') {
         this.connected = true;
