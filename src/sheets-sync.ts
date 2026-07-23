@@ -20,10 +20,20 @@ interface SyncTarget {
   folder: string;
   /** CSV filename within the group folder (source of truth). */
   csvFile: string;
-  /** Secrets file under SECRETS_DIR holding the Sheet id + SA key path. */
+  /** Secrets file under SECRETS_DIR holding the SA key path (+ optional Sheet id). */
   secretsFile: string;
-  /** Env key in the secrets file holding the target Sheet id. */
-  sheetIdKey: string;
+  /**
+   * Env key in the secrets file holding the target Sheet id. Used for
+   * owner-managed sheets whose id lives host-side.
+   */
+  sheetIdKey?: string;
+  /**
+   * Filename within the group folder holding the Sheet id (one line). Used
+   * for user-provided sheets: the container agent writes this file when the
+   * user shares their sheet link, so the id can arrive AFTER startup without
+   * the owner touching host secrets. Takes precedence over `sheetIdKey`.
+   */
+  sheetIdFile?: string;
 }
 
 const TARGETS: SyncTarget[] = [
@@ -39,24 +49,38 @@ const TARGETS: SyncTarget[] = [
     secretsFile: 'gastos.env',
     sheetIdKey: 'GASTOS_SHEET_ID',
   },
+  {
+    // Finanzas (Dany): the sheet is created & shared by the end user, who
+    // pastes the link in chat. The agent extracts the id into sheet_id.txt,
+    // which this watcher picks up live — no host-side secret edit needed.
+    folder: 'finanzas',
+    csvFile: 'finanzas.csv',
+    secretsFile: 'finanzas.env',
+    sheetIdFile: 'sheet_id.txt',
+  },
 ];
 
 interface SyncConfig {
+  target: SyncTarget;
   keyPath: string;
-  sheetId: string;
   csvPath: string;
   groupDir: string;
   csvFile: string;
   folder: string;
 }
 
+/**
+ * Load the base sync config for a target. Only the SA key needs to be present
+ * here — the Sheet id is resolved dynamically at sync time (via
+ * {@link resolveSheetId}) so watchers can start before a user-provided sheet
+ * id exists and begin syncing the moment it appears.
+ */
 function loadConfig(target: SyncTarget): SyncConfig | null {
   const secretsFile = path.join(SECRETS_DIR, target.secretsFile);
   const env = parseEnvFile(secretsFile);
   const keyPath = env.GOOGLE_SA_KEY_PATH;
-  const sheetId = env[target.sheetIdKey];
 
-  if (!keyPath || !sheetId) return null;
+  if (!keyPath) return null;
 
   if (!fs.existsSync(keyPath)) {
     logger.warn(
@@ -68,13 +92,50 @@ function loadConfig(target: SyncTarget): SyncConfig | null {
 
   const groupDir = path.join(GROUPS_DIR, target.folder);
   return {
+    target,
     keyPath,
-    sheetId,
     csvPath: path.join(groupDir, target.csvFile),
     groupDir,
     csvFile: target.csvFile,
     folder: target.folder,
   };
+}
+
+/** Extract a bare spreadsheet id from a raw string that may be a full URL. */
+function extractSheetId(raw: string): string {
+  const trimmed = raw.trim();
+  const m = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : trimmed;
+}
+
+/**
+ * Resolve the current target Sheet id, or null if not configured yet.
+ * A per-group `sheetIdFile` (user-provided) takes precedence over the
+ * host-side `sheetIdKey` secret.
+ */
+function resolveSheetId(config: SyncConfig): string | null {
+  const { target, groupDir } = config;
+
+  if (target.sheetIdFile) {
+    try {
+      const raw = fs.readFileSync(
+        path.join(groupDir, target.sheetIdFile),
+        'utf-8',
+      );
+      const id = extractSheetId(raw);
+      if (id) return id;
+    } catch {
+      // Not provided yet — fall through.
+    }
+  }
+
+  if (target.sheetIdKey) {
+    const env = parseEnvFile(path.join(SECRETS_DIR, target.secretsFile));
+    const id = env[target.sheetIdKey]?.trim();
+    if (id) return id;
+  }
+
+  return null;
 }
 
 /** Parse a single CSV line respecting double-quoted fields (RFC-4180-ish). */
@@ -116,6 +177,9 @@ function parseCSV(content: string): string[][] {
 }
 
 async function syncToSheet(config: SyncConfig): Promise<void> {
+  const sheetId = resolveSheetId(config);
+  if (!sheetId) return; // No target sheet configured yet — nothing to do.
+
   let content: string;
   try {
     content = fs.readFileSync(config.csvPath, 'utf-8');
@@ -135,19 +199,19 @@ async function syncToSheet(config: SyncConfig): Promise<void> {
 
   // Get the first sheet's name
   const meta = await sheets.spreadsheets.get({
-    spreadsheetId: config.sheetId,
+    spreadsheetId: sheetId,
     fields: 'sheets.properties.title',
   });
   const sheetTitle = meta.data.sheets?.[0]?.properties?.title ?? 'Sheet1';
   const range = `'${sheetTitle}'!A1`;
 
   await sheets.spreadsheets.values.clear({
-    spreadsheetId: config.sheetId,
+    spreadsheetId: sheetId,
     range: `'${sheetTitle}'`,
   });
 
   await sheets.spreadsheets.values.update({
-    spreadsheetId: config.sheetId,
+    spreadsheetId: sheetId,
     range,
     valueInputOption: 'RAW',
     requestBody: { values: rows },
@@ -165,11 +229,16 @@ function startWatcher(config: SyncConfig): void {
     logger.error({ err, folder: config.folder }, 'Initial sheets sync failed'),
   );
 
-  // Watch the group directory for changes to its CSV
+  // Watch the group directory for changes to its CSV — and, for
+  // user-provided sheets, to the sheet-id file (so sync starts the moment the
+  // user shares their sheet, without a restart).
   let debounce: ReturnType<typeof setTimeout> | null = null;
+  const watched = new Set(
+    [config.csvFile, config.target.sheetIdFile].filter(Boolean) as string[],
+  );
 
   fs.watch(config.groupDir, (_, filename) => {
-    if (filename !== config.csvFile) return;
+    if (!filename || !watched.has(filename)) return;
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(() => {
       syncToSheet(config).catch((err) =>
@@ -179,7 +248,7 @@ function startWatcher(config: SyncConfig): void {
   });
 
   logger.info(
-    { sheetId: config.sheetId, folder: config.folder },
+    { folder: config.folder, watching: [...watched] },
     'Sheets sync watcher started',
   );
 }
